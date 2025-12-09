@@ -40,7 +40,7 @@ export fn(global, luck){
 	global.points += 36 * (includes(straight_up, k) ? straight_up[k] : 0)
 	for i, v in columns {
 		if includes(v, luck.number) {
-			global.points += 3 * column_bet[49+i]
+			global.points += 3 * column_bet[string(49+i)]
 		}
 	}
 	if luck.number >= 1 && luck.number <= 12 {

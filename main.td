@@ -24,6 +24,7 @@ audio.init()
 
 var user_dir = path.join(os.getenv("appdata"), "Rūretto")
 var user_file = path.join(user_dir, "userdata.dat")
+var history_file = path.join(user_dir, "history.dat")
 if !fs.exists(user_dir) {
 	fs.mkdir(user_dir)
 }
@@ -34,6 +35,8 @@ var global = {
 	betting_chips: [],
 	last_won: 0
 }
+
+var game_history = []
 
 var w = 700
 var h = 400
@@ -51,11 +54,15 @@ var radius = 3.5*scale
 var cy = b_y + 100
 var cx = b_x - 150
 var is_gameover = false
+var show_history = false
 var font_data = embed("res/IBMPlexSans-Bold.ttf")
 var comment = ""
 
 fn save_file(){
 	fs.writefile(user_file, json.encode(global))
+	if game_history.length > 0 {
+		fs.writefile(history_file, json.encode(game_history))
+	}
 }
 
 fn load_file() {
@@ -90,6 +97,15 @@ fn load_file() {
 			is_gameover = true
 		}
 	}
+	
+	// Load game history
+	if fs.exists(history_file) {
+		data := fs.readfile(history_file)
+		history_data := json.decode(data)
+		if !is_error(history_data) {
+			game_history = history_data
+		}
+	}
 }
 
 var last_points = global.points
@@ -103,6 +119,207 @@ fn reset(){
 	comment = ""
 	save_file()
 	last_points = global.points
+}
+
+fn add_to_history(bet_amount, result, won_amount, balance_change) {
+	history_entry := {
+		timestamp: times.time_format(times.now(), "02 Jan 06 15:04"),
+		bet: bet_amount,
+		result_number: result.number,
+		result_color: result.color,
+		won: won_amount,
+		balance_change: balance_change,
+		final_balance: global.points
+	}
+	
+	// game_history.unshift(history_entry) // Add to beginning
+	game_history.push(history_entry) // Add to beginning
+	
+	// Keep only last 100 games
+	if game_history.length > 100 {
+		game_history = game_history.slice(0, 100)
+	}
+	
+	save_file()
+}
+
+fn draw_history_panel(ctx, x, y, width, height) {
+	// Draw background
+	// ctx.hex(theme.bg + "F0")
+	ctx.hex("121212")
+	ctx.rect(x, y, width, height)
+	ctx.fill()
+	
+	// ctx.hex(theme.white + "40")
+	// ctx.rect(x, y, width, height)
+	// ctx.stroke()
+	
+	// Draw title
+	ctx.fontface(font_data, scale/3)
+	ctx.hex(theme.white)
+	title := "Game History"
+	title_kl := ctx.measure_text(title)
+	ctx.text(title, x + width/2 - title_kl[0]/2, y + scale/2 + title_kl[1]/2)
+	ctx.fill()
+	
+	ctx.linewidth(1)
+	// Draw close button
+	close_btn_size := scale/3
+	ctx.hex(theme.red)
+	cx := x + width - close_btn_size - 5
+	cy := y + close_btn_size + 5
+	ctx.circle(cx, cy, close_btn_size)
+	ctx.stroke()
+	
+	// ctx.fontface(font_data, scale/2)
+	// kl := ctx.measure_text("x")
+	// ctx.text("x", cx - close_btn_size/2 + kl[0]/2, cy + kl[1]/2)
+	
+	// ctx.fontface(font_data, scale/3)
+	
+	bounds.push([x + width - close_btn_size*2 - 5, y + 5, close_btn_size*2, close_btn_size*2, 150]) // Close button ID
+	
+	// Calculate area for history items
+	var start_y = y + scale
+	var item_height = scale/1.5
+	var max_items = math.floor((height - scale*2) / item_height)
+	
+	// Draw column headers
+	ctx.hex(theme.white + "80")
+	headers := ["Time", "Bet", "Result", "Won", "Balance"]
+	col_width := width / headers.length
+	
+	for i, header in headers {
+		header_x := x + i * col_width + 5
+		kl := ctx.measure_text(header)
+		ctx.text(header, header_x, start_y + item_height/2 + kl[1]/2)
+		ctx.fill()
+	}
+	
+	// Draw separator line
+	ctx.linewidth(1)
+	ctx.hex(theme.white + "40")
+	ctx.move_to(x, start_y + item_height)
+	ctx.line_to(x + width, start_y + item_height)
+	ctx.stroke()
+	
+	// Draw history items
+	start_y += item_height + 5
+	
+
+	for i, entry in reverse(game_history) {
+		if i >= max_items-1 {
+			break
+		}
+		
+		item_y := start_y + i * item_height
+		
+		// Alternate row colors
+		if i % 2 == 0 {
+			ctx.hex(theme.white + "10")
+			ctx.rect(x, item_y, width, item_height)
+			ctx.fill()
+		}
+		
+		// Format time
+		time_str := entry.timestamp
+		
+		// Format bet
+		bet_str := funcs.format_num(entry.bet)
+		
+		// Format result
+		result_str := format(`%s %s`, string(entry.result_number), entry.result_color == theme.red ? "R" : "B")
+		
+		var won_str
+		var won_color
+		
+		// Format winnings
+		if entry.won > 0 {
+			won_str = format(`+$%s`, funcs.format_num(entry.won))
+			won_color = theme.green
+		}
+		
+		else if entry.won < 0 {
+			won_str = format(`-$%s`, funcs.format_num(math.abs(entry.won)))
+			won_color = theme.red
+		}
+		else {
+			won_str = "$0"
+			won_color = theme.white + "80"
+		}
+		
+		var balance_str
+		var balance_color
+		
+		// Format balance change
+		if entry.balance_change > 0 {
+			balance_str = format(`+$%s`, funcs.format_num(entry.balance_change))
+			balance_color = theme.green
+		}
+		else if entry.balance_change < 0 {
+			balance_str = format(`-$%s`, funcs.format_num(math.abs(entry.balance_change)))
+			balance_color = theme.red
+		}
+		else {
+			balance_str = "$0"
+			balance_color = theme.white + "80"
+		}
+		
+		// Draw columns
+		columns := [time_str, "$" + bet_str, result_str, won_str, balance_str]
+		colors := [theme.white + "80", theme.white + "80", theme.white + "80", won_color, balance_color]
+		
+		for j, col_text in columns {
+			col_x := x + j * col_width + 5
+			kl := ctx.measure_text(col_text)
+			ctx.hex(colors[j])
+			ctx.text(col_text, col_x, item_y + item_height/2 + kl[1]/2)
+			ctx.fill()
+		}
+	}
+	
+	// Draw "No games played yet" message if history is empty
+	if game_history.length == 0 {
+		ctx.hex(theme.white + "60")
+		msg := "No games played yet"
+		kl := ctx.measure_text(msg)
+		ctx.text(msg, x + width/2 - kl[0]/2, start_y + height/3)
+		ctx.fill()
+	}
+	
+	// Draw summary at bottom
+	if game_history.length > 0 {
+		total_won := 0
+		total_lost := 0
+		wins := 0
+		losses := 0
+		
+		for entry in game_history {
+			if entry.won > 0 {
+				total_won += entry.won
+				wins += 1
+			}
+			else if entry.won < 0 {
+				total_lost += math.abs(entry.won)
+				losses += 1
+			}
+		}
+		
+		summary_y := y + height - scale/4
+		
+		// Win rate
+		total_games := wins + losses
+		win_rate := total_games > 0 ? ((float(wins) / total_games) * 100) : 0
+		
+		summary_text := format(`Games: %d | Wins: %d (%.0f%%) | Profit: $%s`, 
+			total_games, wins, win_rate, funcs.format_num_comma(total_won - total_lost))
+		
+		ctx.hex(theme.white + "80")
+		ctx.fontface(font_data, scale/3.5)
+		kl := ctx.measure_text(summary_text)
+		ctx.text(summary_text, x + width/2 - kl[0]/2, summary_y)
+		ctx.fill()
+	}
 }
 
 fn draw(ctx) {
@@ -381,6 +598,28 @@ fn draw(ctx) {
 			drawchip(ctx, bound[0] + bound[2]/2, bound[1] + bound[3]/2, label, scale)
 		}
 	}
+	
+	// Draw history button
+	history_btn_x := w - scale/2 - 10
+	history_btn_y := scale/2 + 10
+	ctx.linewidth(1)
+	// ctx.hex(theme.white + "20")
+	// ctx.circle(history_btn_x, history_btn_y, scale/3)
+	// ctx.fill()
+	ctx.hex(theme.white)
+	ctx.circle(history_btn_x, history_btn_y, scale/3)
+	ctx.stroke()
+	
+	bounds.push([history_btn_x - scale/3, history_btn_y - scale/3, scale, scale, 151]) // History button ID
+	
+	// Draw history panel if shown
+	if show_history {
+		panel_width := w * 0.8
+		panel_height := h * 0.7
+		panel_x := (w - panel_width) / 2
+		panel_y := (h - panel_height) / 2
+		draw_history_panel(ctx, panel_x, panel_y, panel_width, panel_height)
+	}
 }
 
 
@@ -431,6 +670,28 @@ canvas.new_window(w, h, "Rūretto", fn(window){
 				ah := b[3]
 				if ax < e.x && ay < e.y && ax + aw > e.x && ay + ah > e.y {
 					var id = b[4]
+					
+					// Handle history panel close button
+					if show_history && id == 150 {
+						show_history = false
+						draw(ctx)
+						window.update(w, h)
+						continue
+					}
+					
+					// Handle history button
+					if id == 151 {
+						show_history = !show_history
+						draw(ctx)
+						window.update(w, h)
+						continue
+					}
+					
+					// If history panel is open, only allow clicking on close button
+					if show_history {
+						continue
+					}
+					
 					if is_gameover {
 						if id == 103 {
 							reset()
@@ -498,6 +759,12 @@ canvas.new_window(w, h, "Rūretto", fn(window){
 						betting_scale_index = -1
 					}
  					else if id == 103 {
+						// Calculate total bet before spin
+						total_bet_before := 0
+						for chip in global.betting_chips {
+							total_bet_before += chip[1]
+						}
+						
 						index := randint(0, wheel.length - 1)
 						luck := wheel[index]
 						fn(){
@@ -530,8 +797,24 @@ canvas.new_window(w, h, "Rūretto", fn(window){
 								times.sleep(times.second/20)
 							}
 						}()
+						
+						points_before := global.points
 						rules(global, luck)
 						global.last_won = global.points - last_points
+						
+						// Calculate winnings/losses
+						won_amount := 0
+						balance_change := global.points - points_before
+						
+						if balance_change > 0 {
+							won_amount = balance_change
+						} else {
+							won_amount = -total_bet_before
+						}
+						
+						// Add to history
+						add_to_history(total_bet_before, luck, won_amount, balance_change)
+						
 						if global.last_won < 0 {
 							go(fn(){
 								a := audio.player(embed("res/wooh.mp3"))
@@ -557,7 +840,6 @@ canvas.new_window(w, h, "Rūretto", fn(window){
 					draw(ctx)
 					window.update(w, h)
 					save_file()
-					// sysout format("0x%05x %d\n", id, id).yellow
 				}
 			}
 		}
