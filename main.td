@@ -13,6 +13,9 @@ import "wheel"
 import "rules"
 import "drawchip"
 import "theme"
+import "console"
+
+// console.hide()
 
 // Comment out this code to generate logo
 // ctx := canvas.new_context(500, 500)
@@ -30,10 +33,10 @@ if !fs.exists(user_dir) {
 }
 
 var global = {
-	points: 25000,
-	betting_scale: 10,
+	points: bigint(25000),
+	betting_scale: bigint(10),
 	betting_chips: [],
-	last_won: 0
+	last_won: bigint(0)
 }
 
 var game_history = []
@@ -643,7 +646,16 @@ fn intro(ctx, window){
 	}
 }
 
-canvas.new_window(w, h, "Rūretto", fn(window){
+
+var options = {
+    width: w,
+    height: h,
+    title: "Rūretto",
+    x: 150,
+    y: 80
+}
+
+canvas.new_window(options, fn(window){
 	ctx := window.new_context(w, h)
 	intro(ctx, window)
 	load_file()
